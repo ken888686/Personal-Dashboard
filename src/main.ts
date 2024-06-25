@@ -17,10 +17,7 @@ async function bootstrap() {
   const configService = app.get<ConfigService>(ConfigService);
   const port = configService.get<number>('PORT');
   if (!port) {
-    throw new HttpException(
-      'PORT is not set',
-      HttpStatus.INTERNAL_SERVER_ERROR,
-    );
+    throw new HttpException('PORT is not set', HttpStatus.INTERNAL_SERVER_ERROR);
   }
   await app.listen(port || 3000);
 }
