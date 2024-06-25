@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { DecodedIdToken } from 'firebase-admin/lib/auth/token-verifier';
@@ -8,11 +8,15 @@ import {
   createUserWithEmailAndPassword,
   getAuth,
   signInWithEmailAndPassword,
+  updateProfile,
 } from 'firebase/auth';
 import { OAuth2Client } from 'google-auth-library';
 import { google } from 'googleapis';
-import { TokenDto } from './dtos/auth.dto';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import { UserService } from 'src/user/user.service';
 import { AuthProvider } from './dtos/auth.enum';
+import { SignUpDto } from './dtos/sign-up.dto';
+import { TokenDto } from './dtos/token.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +25,10 @@ export class AuthService {
   private readonly firebaseAdmin: admin.app.App;
   private readonly oauth2Client: OAuth2Client;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly userService: UserService,
+  ) {
     this.firebaseApp =
       getApps()[0] ||
       initializeApp({
@@ -54,9 +61,14 @@ export class AuthService {
     );
   }
 
-  async login(username: string, pass: string): Promise<TokenDto> {
+  async login(email: string, password: string): Promise<TokenDto> {
     try {
-      const { user } = await signInWithEmailAndPassword(this.firebaseAuth, username, pass);
+      const exists = await this.userService.existsByEmail(email);
+      if (!exists) {
+        throw new NotFoundException(`${email} doesn't exist`);
+      }
+
+      const { user } = await signInWithEmailAndPassword(this.firebaseAuth, email, password);
       if (!user) {
         throw new UnauthorizedException();
       }
@@ -70,14 +82,35 @@ export class AuthService {
     }
   }
 
-  async signUp(username: string, pass: string): Promise<TokenDto> {
+  async signUp(signUpDto: SignUpDto): Promise<TokenDto> {
     try {
-      const { user } = await createUserWithEmailAndPassword(this.firebaseAuth, username, pass);
+      const { user } = await createUserWithEmailAndPassword(
+        this.firebaseAuth,
+        signUpDto.email,
+        signUpDto.password,
+      );
       if (!user) {
         throw new UnauthorizedException();
       }
 
-      //TODO: Save user to db
+      // Check email exists
+      const exists = await this.userService.existsByEmail(user.email);
+      if (!exists) {
+        // Add new user to pg
+        const newUser: CreateUserDto = {
+          email: user.email,
+          emailVerified: user.emailVerified,
+          displayName: signUpDto.displayName,
+          photoUrl: signUpDto.photoUrl,
+        };
+        this.userService.upsert(newUser);
+
+        // Update user information to firebase
+        await updateProfile(this.firebaseAuth.currentUser, {
+          displayName: signUpDto.displayName,
+          photoURL: signUpDto.photoUrl,
+        });
+      }
 
       return {
         access_token: await user.getIdToken(true),
@@ -107,7 +140,22 @@ export class AuthService {
     const { tokens } = await this.oauth2Client.getToken(code);
     this.oauth2Client.setCredentials(tokens);
 
-    //TODO: Save user to db
+    const decodedIdToken = await this.verifyGoogleToken(tokens.id_token);
+
+    // Check email exists
+    const exists = await this.userService.existsByEmail(decodedIdToken.email);
+    if (!exists) {
+      // Add new user
+      const newUser: CreateUserDto = {
+        email: decodedIdToken.email,
+        emailVerified: decodedIdToken.emailVerified,
+        displayName: decodedIdToken.displayName,
+        photoUrl: decodedIdToken.picture,
+        firstName: decodedIdToken.firstName,
+        lastName: decodedIdToken.lastName,
+      };
+      this.userService.upsert(newUser);
+    }
 
     return tokens;
   }
@@ -138,7 +186,10 @@ export class AuthService {
     return {
       uid: payload['sub'],
       email: payload['email'],
-      name: payload['name'],
+      emailVerified: payload['email_verified'],
+      displayName: payload['name'],
+      lastName: payload['given_name'],
+      firstName: payload['family_name'],
       picture: payload['picture'],
     };
   }
