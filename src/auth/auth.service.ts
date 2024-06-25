@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { DecodedIdToken } from 'firebase-admin/lib/auth/token-verifier';
@@ -24,6 +24,7 @@ export class AuthService {
   private readonly firebaseApp: FirebaseApp;
   private readonly firebaseAdmin: admin.app.App;
   private readonly oauth2Client: OAuth2Client;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private readonly configService: ConfigService,
@@ -63,14 +64,20 @@ export class AuthService {
 
   async login(email: string, password: string): Promise<TokenDto> {
     try {
+      this.logger.log('check email exists');
       const exists = await this.userService.existsByEmail(email);
       if (!exists) {
-        throw new NotFoundException(`${email} doesn't exist`);
+        const msg = `${email} doesn't exist`;
+        this.logger.error(msg);
+        throw new NotFoundException(msg);
       }
 
+      this.logger.log('login with email');
       const { user } = await signInWithEmailAndPassword(this.firebaseAuth, email, password);
       if (!user) {
-        throw new UnauthorizedException();
+        const msg = 'User not found';
+        this.logger.error(msg);
+        throw new UnauthorizedException(msg);
       }
 
       return {
@@ -78,12 +85,21 @@ export class AuthService {
         refresh_token: user.refreshToken,
       };
     } catch (error) {
+      this.logger.error(error);
       throw new UnauthorizedException(error);
     }
   }
 
   async signUp(signUpDto: SignUpDto): Promise<TokenDto> {
     try {
+      // Check email exists
+      const exists = await this.userService.existsByEmail(signUpDto.email);
+      if (exists) {
+        const msg = `${signUpDto.email} already exists`;
+        this.logger.error(msg);
+        throw new UnauthorizedException(msg);
+      }
+
       const { user } = await createUserWithEmailAndPassword(
         this.firebaseAuth,
         signUpDto.email,
@@ -93,59 +109,64 @@ export class AuthService {
         throw new UnauthorizedException();
       }
 
-      // Check email exists
-      const exists = await this.userService.existsByEmail(user.email);
-      if (!exists) {
-        // Add new user to pg
-        const newUser: CreateUserDto = {
-          email: user.email,
-          emailVerified: user.emailVerified,
-          displayName: signUpDto.displayName,
-          photoUrl: signUpDto.photoUrl,
-        };
-        this.userService.upsert(newUser);
+      // Add new user to pg
+      const newUser: CreateUserDto = {
+        email: user.email,
+        emailVerified: user.emailVerified,
+        displayName: signUpDto.displayName,
+        photoUrl: signUpDto.photoUrl,
+      };
+      this.logger.log('create new user to pg');
+      this.userService.upsert(newUser);
 
-        // Update user information to firebase
-        await updateProfile(this.firebaseAuth.currentUser, {
-          displayName: signUpDto.displayName,
-          photoURL: signUpDto.photoUrl,
-        });
-      }
+      // Update user information to firebase
+      this.logger.log('update user profile to firebase');
+      await updateProfile(this.firebaseAuth.currentUser, {
+        displayName: signUpDto.displayName,
+        photoURL: signUpDto.photoUrl,
+      });
 
       return {
         access_token: await user.getIdToken(true),
         refresh_token: user.refreshToken,
       };
     } catch (error) {
-      console.log(error);
+      this.logger.error(error);
       throw new UnauthorizedException();
     }
   }
 
   handlerLogin() {
-    const url = this.oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: [
-        // https://developers.google.com/identity/protocols/oauth2/scopes
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile',
-      ],
-      include_granted_scopes: true,
-      prompt: 'consent',
-    });
-    return url;
+    try {
+      this.logger.log('generate url');
+      const url = this.oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: [
+          // https://developers.google.com/identity/protocols/oauth2/scopes
+          'https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/userinfo.profile',
+        ],
+        include_granted_scopes: true,
+        prompt: 'consent',
+      });
+      this.logger.log('generated url success');
+      return url;
+    } catch (error) {
+      this.logger.error(error);
+      throw new UnauthorizedException(error);
+    }
   }
 
   async handlerRedirect(code: string) {
-    const { tokens } = await this.oauth2Client.getToken(code);
-    this.oauth2Client.setCredentials(tokens);
+    try {
+      this.logger.log('get token');
+      const { tokens } = await this.oauth2Client.getToken(code);
+      this.oauth2Client.setCredentials(tokens);
 
-    const decodedIdToken = await this.verifyGoogleToken(tokens.id_token);
+      this.logger.log('verify token');
+      const decodedIdToken = await this.verifyGoogleToken(tokens.id_token);
 
-    // Check email exists
-    const exists = await this.userService.existsByEmail(decodedIdToken.email);
-    if (!exists) {
-      // Add new user
+      this.logger.log('insert or update user profile to pg');
       const newUser: CreateUserDto = {
         email: decodedIdToken.email,
         emailVerified: decodedIdToken.emailVerified,
@@ -155,9 +176,12 @@ export class AuthService {
         lastName: decodedIdToken.lastName,
       };
       this.userService.upsert(newUser);
-    }
 
-    return tokens;
+      return tokens;
+    } catch (error) {
+      this.logger.error(error);
+      throw new UnauthorizedException(error);
+    }
   }
 
   async determineAuthProvider(token: string) {
@@ -166,31 +190,47 @@ export class AuthService {
         idToken: token,
         audience: this.configService.get<string>('CLIENT_ID'),
       });
+      this.logger.log('google token');
       return AuthProvider.GOOGLE;
     } catch (error) {
+      this.logger.log('firebase token');
       return AuthProvider.FIREBASE;
     }
   }
 
   async verifyToken(idToken: string): Promise<DecodedIdToken> {
-    const result = await this.firebaseAdmin.auth().verifyIdToken(idToken);
-    return result;
+    try {
+      this.logger.log('verify email token');
+      const result = await this.firebaseAdmin.auth().verifyIdToken(idToken);
+      return result;
+    } catch (error) {
+      this.logger.error(error);
+      throw new UnauthorizedException(error);
+    }
   }
 
   async verifyGoogleToken(token: string) {
-    const ticket = await this.oauth2Client.verifyIdToken({
-      idToken: token,
-      audience: this.configService.get<string>('CLIENT_ID'),
-    });
-    const payload = ticket.getPayload();
-    return {
-      uid: payload['sub'],
-      email: payload['email'],
-      emailVerified: payload['email_verified'],
-      displayName: payload['name'],
-      lastName: payload['given_name'],
-      firstName: payload['family_name'],
-      picture: payload['picture'],
-    };
+    try {
+      this.logger.log('verify google token');
+      const ticket = await this.oauth2Client.verifyIdToken({
+        idToken: token,
+        audience: this.configService.get<string>('CLIENT_ID'),
+      });
+
+      this.logger.log('get payload from google token');
+      const payload = ticket.getPayload();
+      return {
+        uid: payload['sub'],
+        email: payload['email'],
+        emailVerified: payload['email_verified'],
+        displayName: payload['name'],
+        lastName: payload['given_name'],
+        firstName: payload['family_name'],
+        picture: payload['picture'],
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new UnauthorizedException(error);
+    }
   }
 }
