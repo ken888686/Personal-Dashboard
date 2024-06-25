@@ -175,7 +175,7 @@ export class AuthService {
         firstName: decodedIdToken.firstName,
         lastName: decodedIdToken.lastName,
       };
-      this.userService.upsert(newUser);
+      await this.userService.upsert(newUser);
 
       return tokens;
     } catch (error) {
