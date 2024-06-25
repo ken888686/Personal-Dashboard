@@ -27,10 +27,18 @@
     "@nestjs/config": "^3.2.2",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.3.9",
+    "@nestjs/typeorm": "^10.0.2",
+    "crypto": "^1.0.1",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
     "firebase": "^10.12.2",
     "firebase-admin": "^12.1.1",
+    "google-auth-library": "^9.11.0",
+    "googleapis": "^140.0.0",
+    "pg": "^8.12.0",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "typeorm": "^0.3.20"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
