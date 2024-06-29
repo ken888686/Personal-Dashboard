@@ -25,7 +25,7 @@ export class AuthController {
     return await this.authService.signUp(signUpDto);
   }
 
-  @Get('google/login')
+  @Get('google')
   handlerLogin(): string {
     this.logger.log('handle google login');
     return this.authService.handlerLogin();
