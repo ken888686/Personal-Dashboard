@@ -22,6 +22,7 @@ export class UserService {
 
   async upsert(newUser: CreateUserDto): Promise<User> {
     this.logger.log(`upsert user: ${JSON.stringify(newUser)}`);
-    return await this.usersRepository.save(newUser);
+    await this.usersRepository.upsert(newUser, ['email']);
+    return await this.usersRepository.findOneBy({ email: newUser.email });
   }
 }
