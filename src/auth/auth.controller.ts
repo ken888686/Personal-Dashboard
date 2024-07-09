@@ -7,9 +7,11 @@ import { TokenDto } from './dtos/token.dto';
 
 @Controller('auth')
 export class AuthController {
-  private readonly logger = new Logger(AuthController.name);
+  private readonly logger: Logger;
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {
+    this.logger = new Logger(AuthController.name);
+  }
 
   @HttpCode(HttpStatus.OK)
   @Post('login')

@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -17,5 +18,6 @@ async function bootstrap() {
     throw new HttpException('PORT is not set', HttpStatus.INTERNAL_SERVER_ERROR);
   }
   await app.listen(port || 3000);
+  Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 bootstrap();
