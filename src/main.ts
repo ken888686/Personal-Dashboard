@@ -1,4 +1,3 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -9,15 +8,16 @@ async function bootstrap() {
     logger: ['log', 'fatal', 'error', 'warn', 'debug', 'verbose'],
   });
 
+  const configService = app.get<ConfigService>(ConfigService);
+
+  const globalPrefix = configService.get<string>('PREFIX') || 'api';
+  const port = configService.get<number>('PORT') || 3001;
+  app.setGlobalPrefix(globalPrefix);
+
   // CORS
   app.enableCors();
 
-  const configService = app.get<ConfigService>(ConfigService);
-  const port = configService.get<number>('PORT');
-  if (!port) {
-    throw new HttpException('PORT is not set', HttpStatus.INTERNAL_SERVER_ERROR);
-  }
-  await app.listen(port || 3000);
+  await app.listen(port);
   Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 bootstrap();
