@@ -24,12 +24,14 @@ export class AuthService {
   private readonly firebaseApp: FirebaseApp;
   private readonly firebaseAdmin: admin.app.App;
   private readonly oauth2Client: OAuth2Client;
-  private readonly logger = new Logger(AuthService.name);
+  private readonly logger: Logger;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly userService: UserService,
   ) {
+    this.logger = new Logger(AuthService.name);
+
     this.firebaseApp =
       getApps()[0] ||
       initializeApp({

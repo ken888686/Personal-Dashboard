@@ -6,9 +6,11 @@ import { User } from './entity/user.entity';
 
 @Injectable()
 export class UserService {
-  private readonly logger = new Logger(UserService.name);
+  private readonly logger: Logger;
 
-  constructor(@InjectRepository(User) private usersRepository: Repository<User>) {}
+  constructor(@InjectRepository(User) private usersRepository: Repository<User>) {
+    this.logger = new Logger(UserService.name);
+  }
 
   async existsByEmail(email: string): Promise<boolean> {
     this.logger.log(`check email exists: ${email}`);
@@ -22,6 +24,7 @@ export class UserService {
 
   async upsert(newUser: CreateUserDto): Promise<User> {
     this.logger.log(`upsert user: ${JSON.stringify(newUser)}`);
-    return await this.usersRepository.save(newUser);
+    await this.usersRepository.upsert(newUser, ['email']);
+    return await this.usersRepository.findOneBy({ email: newUser.email });
   }
 }
