@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { DecodedIdToken } from 'firebase-admin/lib/auth/token-verifier';
@@ -99,7 +105,15 @@ export class AuthService {
       if (exists) {
         const msg = `${signUpDto.email} already exists`;
         this.logger.error(msg);
-        throw new UnauthorizedException(msg);
+        throw new BadRequestException(msg);
+      }
+
+      // Check password
+      if (this.verifyPassword(signUpDto.password)) {
+        const msg =
+          'Password is too weak. It must contain at least one lowercase letter, one uppercase letter, one digit, one special character, and be at least 8 characters long.';
+        this.logger.warn(msg);
+        throw new BadRequestException(msg);
       }
 
       const { user } = await createUserWithEmailAndPassword(
@@ -108,7 +122,7 @@ export class AuthService {
         signUpDto.password,
       );
       if (!user) {
-        throw new UnauthorizedException();
+        throw new BadRequestException();
       }
 
       // Add new user to pg
@@ -134,7 +148,7 @@ export class AuthService {
       };
     } catch (error) {
       this.logger.error(error);
-      throw new UnauthorizedException(error);
+      throw new BadRequestException(error);
     }
   }
 
@@ -234,5 +248,22 @@ export class AuthService {
       this.logger.error(error);
       throw new UnauthorizedException(error);
     }
+  }
+
+  private verifyPassword(password: string): boolean {
+    // Regular expressions for each condition
+    const lowerCaseRegex = /[a-z]/;
+    const upperCaseRegex = /[A-Z]/;
+    const digitRegex = /[0-9]/;
+    const specialCharRegex = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/;
+
+    // Check all conditions
+    const hasLowerCase = lowerCaseRegex.test(password);
+    const hasUpperCase = upperCaseRegex.test(password);
+    const hasDigit = digitRegex.test(password);
+    const hasSpecialChar = specialCharRegex.test(password);
+    const hasMinLength = password.length >= 8;
+
+    return hasLowerCase && hasUpperCase && hasDigit && hasSpecialChar && hasMinLength;
   }
 }
