@@ -14,7 +14,7 @@ import { UserModule } from './user/user.module';
       useFactory: getDatabaseConfig,
       inject: [ConfigService],
     }),
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, cache: true }),
     AuthModule,
     UserModule,
   ],

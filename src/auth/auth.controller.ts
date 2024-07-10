@@ -1,6 +1,18 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Logger, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Logger,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
+import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
+import { AuthProvider } from './dtos/auth.enum';
 import { LoginDto } from './dtos/login.dto';
 import { SignUpDto } from './dtos/sign-up.dto';
 import { TokenDto } from './dtos/token.dto';
@@ -20,7 +32,7 @@ export class AuthController {
     return await this.authService.login(loginDto.email, loginDto.password);
   }
 
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.CREATED)
   @Post('signup')
   async signUp(@Body() signUpDto: SignUpDto): Promise<TokenDto> {
     this.logger.log('email and password signup');
@@ -42,5 +54,30 @@ export class AuthController {
       access_token: tokens.id_token,
       refresh_token: tokens.refresh_token,
     };
+  }
+
+  @Get('profile')
+  @UseGuards(AuthGuard)
+  async test(@Req() request: Request): Promise<any> {
+    const token = request.headers.authorization;
+    const provider = await this.authService.determineAuthProvider(token);
+    switch (provider) {
+      case AuthProvider.FIREBASE: {
+        const user = await this.authService.verifyToken(token);
+        return {
+          provider,
+          user,
+        };
+      }
+      case AuthProvider.GOOGLE: {
+        const user = await this.authService.verifyGoogleToken(token);
+        return {
+          provider,
+          user,
+        };
+      }
+      default:
+        return null;
+    }
   }
 }
