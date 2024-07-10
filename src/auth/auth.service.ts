@@ -66,7 +66,7 @@ export class AuthService {
 
   async login(email: string, password: string): Promise<TokenDto> {
     try {
-      this.logger.log('check email exists');
+      this.logger.log('check email exists:', email);
       const exists = await this.userService.existsByEmail(email);
       if (!exists) {
         const msg = `${email} doesn't exist`;
@@ -134,7 +134,7 @@ export class AuthService {
       };
     } catch (error) {
       this.logger.error(error);
-      throw new UnauthorizedException();
+      throw new UnauthorizedException(error);
     }
   }
 
@@ -145,8 +145,8 @@ export class AuthService {
         access_type: 'offline',
         scope: [
           // https://developers.google.com/identity/protocols/oauth2/scopes
-          'https://www.googleapis.com/auth/userinfo.email',
-          'https://www.googleapis.com/auth/userinfo.profile',
+          'email',
+          'profile',
         ],
         include_granted_scopes: true,
         prompt: 'consent',
