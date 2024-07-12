@@ -26,6 +26,9 @@ export class User {
   @Column({ type: 'boolean', default: true })
   enabled: boolean = true;
 
+  @Column({ type: 'varchar', length: 255, default: '' })
+  loginType: string;
+
   @Column({ name: 'create_at', type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   createAt: Date;
 
