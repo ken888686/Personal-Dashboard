@@ -1,11 +1,7 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
 import * as admin from 'firebase-admin';
 import { DecodedIdToken } from 'firebase-admin/lib/auth/token-verifier';
 import { FirebaseApp, getApps, initializeApp } from 'firebase/app';
@@ -17,8 +13,8 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { OAuth2Client } from 'google-auth-library';
-import { google } from 'googleapis';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import { User } from 'src/user/entity/user.entity';
 import { UserService } from 'src/user/user.service';
 import { AuthProvider } from './dtos/auth.enum';
 import { SignUpDto } from './dtos/sign-up.dto';
@@ -35,6 +31,7 @@ export class AuthService {
   constructor(
     private readonly configService: ConfigService,
     private readonly userService: UserService,
+    private jwtService: JwtService,
   ) {
     this.logger = new Logger(AuthService.name);
 
@@ -47,7 +44,6 @@ export class AuthService {
         storageBucket: this.configService.get<string>('STORAGE_BUCKET'),
         messagingSenderId: this.configService.get<string>('MESSAGING_SENDER_ID'),
         appId: this.configService.get<string>('APP_ID'),
-        measurementId: this.configService.get<string>('MEASUREMENT_ID'),
       });
     this.firebaseAuth = getAuth(this.firebaseApp);
 
@@ -63,14 +59,15 @@ export class AuthService {
           privateKey: privateKey.replace(/\\n/g, '\n'),
         }),
       });
-    this.oauth2Client = new google.auth.OAuth2(
+
+    this.oauth2Client = new OAuth2Client(
       this.configService.get<string>('CLIENT_ID'),
       this.configService.get<string>('CLIENT_SECRET'),
       this.configService.get<string>('CALLBACK_URL'),
     );
   }
 
-  async login(email: string, password: string): Promise<TokenDto> {
+  async loginWithPassword(email: string, password: string): Promise<TokenDto> {
     try {
       this.logger.log('check email exists:', email);
       const exists = await this.userService.existsByEmail(email);
@@ -85,20 +82,38 @@ export class AuthService {
       if (!user) {
         const msg = 'User not found';
         this.logger.error(msg);
-        throw new UnauthorizedException(msg);
+        throw new BadRequestException(msg);
       }
 
+      this.logger.log('get user id token');
+      const result = await user.getIdTokenResult();
+
+      this.logger.log('generate jwt payload');
+      const payload = {
+        loginType: AuthProvider.PASSWORD,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        displayName: user.displayName,
+        photoUrl: user.photoURL,
+        firstName: user.metadata.creationTime,
+        lastName: user.metadata.lastSignInTime,
+        providerId: result.signInProvider,
+      };
+
+      this.logger.log('sign access token');
+      const accessToken = await this.jwtService.signAsync(payload);
+
       return {
-        access_token: await user.getIdToken(true),
+        access_token: accessToken,
         refresh_token: user.refreshToken,
       };
     } catch (error) {
       this.logger.error(error);
-      throw new UnauthorizedException(error);
+      throw new BadRequestException(error);
     }
   }
 
-  async signUp(signUpDto: SignUpDto): Promise<TokenDto> {
+  async signUpWithPassword(signUpDto: SignUpDto): Promise<TokenDto> {
     try {
       // Check email exists
       const exists = await this.userService.existsByEmail(signUpDto.email);
@@ -109,7 +124,7 @@ export class AuthService {
       }
 
       // Check password
-      if (this.verifyPassword(signUpDto.password)) {
+      if (!this.verifyPassword(signUpDto.password)) {
         const msg =
           'Password is too weak. It must contain at least one lowercase letter, one uppercase letter, one digit, one special character, and be at least 8 characters long.';
         this.logger.warn(msg);
@@ -131,6 +146,7 @@ export class AuthService {
         emailVerified: user.emailVerified,
         displayName: signUpDto.displayName,
         photoUrl: signUpDto.photoUrl,
+        loginType: AuthProvider.PASSWORD,
       };
       this.logger.log('create new user to pg');
       this.userService.upsert(newUser);
@@ -152,104 +168,6 @@ export class AuthService {
     }
   }
 
-  handlerLogin() {
-    try {
-      this.logger.log('generate url');
-      const url = this.oauth2Client.generateAuthUrl({
-        access_type: 'offline',
-        scope: [
-          // https://developers.google.com/identity/protocols/oauth2/scopes
-          'email',
-          'profile',
-        ],
-        include_granted_scopes: true,
-        prompt: 'consent',
-      });
-      this.logger.log('generated url success');
-      return url;
-    } catch (error) {
-      this.logger.error(error);
-      throw new UnauthorizedException(error);
-    }
-  }
-
-  async handlerRedirect(code: string) {
-    try {
-      this.logger.log('get token');
-      const { tokens } = await this.oauth2Client.getToken(code);
-      this.oauth2Client.setCredentials(tokens);
-
-      this.logger.log('verify token');
-      const decodedIdToken = await this.verifyGoogleToken(tokens.id_token);
-
-      this.logger.log('insert or update user profile to pg');
-      const newUser: CreateUserDto = {
-        email: decodedIdToken.email,
-        emailVerified: decodedIdToken.emailVerified,
-        displayName: decodedIdToken.displayName,
-        photoUrl: decodedIdToken.picture,
-        firstName: decodedIdToken.firstName,
-        lastName: decodedIdToken.lastName,
-      };
-      await this.userService.upsert(newUser);
-
-      return tokens;
-    } catch (error) {
-      this.logger.error(error);
-      throw new UnauthorizedException(error);
-    }
-  }
-
-  async determineAuthProvider(token: string) {
-    try {
-      await this.oauth2Client.verifyIdToken({
-        idToken: token,
-        audience: this.configService.get<string>('CLIENT_ID'),
-      });
-      this.logger.log('google token');
-      return AuthProvider.GOOGLE;
-    } catch (error) {
-      this.logger.log('firebase token');
-      return AuthProvider.FIREBASE;
-    }
-  }
-
-  async verifyToken(idToken: string): Promise<DecodedIdToken> {
-    try {
-      this.logger.log('verify email token');
-      const result = await this.firebaseAdmin.auth().verifyIdToken(idToken);
-      return result;
-    } catch (error) {
-      this.logger.error(error);
-      throw new UnauthorizedException(error);
-    }
-  }
-
-  async verifyGoogleToken(token: string) {
-    try {
-      this.logger.log('verify google token');
-      const ticket = await this.oauth2Client.verifyIdToken({
-        idToken: token,
-        audience: this.configService.get<string>('CLIENT_ID'),
-      });
-
-      this.logger.log('get payload from google token');
-      const payload = ticket.getPayload();
-      return {
-        uid: payload['sub'],
-        email: payload['email'],
-        emailVerified: payload['email_verified'],
-        displayName: payload['name'],
-        lastName: payload['given_name'],
-        firstName: payload['family_name'],
-        picture: payload['picture'],
-      };
-    } catch (error) {
-      this.logger.error(error);
-      throw new UnauthorizedException(error);
-    }
-  }
-
   private verifyPassword(password: string): boolean {
     // Regular expressions for each condition
     const lowerCaseRegex = /[a-z]/;
@@ -265,5 +183,110 @@ export class AuthService {
     const hasMinLength = password.length >= 8;
 
     return hasLowerCase && hasUpperCase && hasDigit && hasSpecialChar && hasMinLength;
+  }
+
+  async getGoogleAuthURL() {
+    try {
+      this.logger.log('start generating url');
+      const url = this.oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['email', 'profile'],
+        include_granted_scopes: true,
+        prompt: 'select_account',
+      });
+      this.logger.log('generated url success');
+      return url;
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  async googleAuthCallback(request: Request): Promise<TokenDto> {
+    try {
+      this.logger.log('get code from query params');
+      const { code } = request.query;
+
+      this.logger.log('get tokens from query params');
+      const { tokens } = await this.oauth2Client.getToken(code as string);
+
+      this.oauth2Client.setCredentials(tokens);
+
+      this.logger.log('verify token');
+      const payload = await this.getGoogleOAuthPayload(tokens.id_token);
+
+      this.logger.log('insert or update user profile to database');
+      const newUser: CreateUserDto = {
+        email: payload.email,
+        emailVerified: payload.emailVerified,
+        displayName: payload.displayName,
+        loginType: AuthProvider.GOOGLE,
+        photoUrl: payload.picture,
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+      };
+      const user = await this.userService.upsert(newUser);
+      const jwt = await this.generateTokens(user, AuthProvider.GOOGLE, tokens.refresh_token);
+
+      return {
+        access_token: jwt.accessToken,
+        refresh_token: jwt.refreshToken,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  async verifyToken(idToken: string): Promise<DecodedIdToken> {
+    try {
+      this.logger.log('verify token');
+      const result = await this.jwtService.verifyAsync(idToken);
+      return result;
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  async getGoogleOAuthPayload(token: string) {
+    try {
+      this.logger.log('verify google token');
+      const ticket = await this.oauth2Client.verifyIdToken({
+        idToken: token,
+        audience: this.configService.get<string>('CLIENT_ID'),
+      });
+
+      this.logger.log('get payload from google token');
+      const payload = ticket.getPayload();
+      return {
+        uid: payload.sub,
+        email: payload.email,
+        emailVerified: payload.email_verified,
+        displayName: payload.name,
+        lastName: payload.given_name,
+        firstName: payload.family_name,
+        picture: payload.picture,
+        aud: payload.aud,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  private async generateTokens(userInfo: User, provider: string, refreshToken: string) {
+    const accessToken = await this.jwtService.signAsync(
+      { ...userInfo, provider },
+      {
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: '1d',
+      },
+    );
+
+    return {
+      accessToken,
+      refreshToken,
+    };
   }
 }
