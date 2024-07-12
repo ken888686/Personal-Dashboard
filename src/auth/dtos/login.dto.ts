@@ -1,3 +1,3 @@
 import { Base } from './base.dto';
 
-export interface LoginDto extends Base {}
+export class LoginDto extends Base {}

@@ -9,8 +9,8 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
   password: configService.get<string>('POSTGRES_PASSWORD', 'donald'),
   database: configService.get<string>('POSTGRES_DATABASE', 'postgres'),
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  synchronize: configService.get<boolean>('DATABASE_SYNCHRONIZE', false),
-  logging: true,
+  synchronize: configService.get('DATABASE_SYNCHRONIZE', false) === 'true',
+  logging: configService.get('DATABASE_LOGGING', false) === 'true',
   ssl: {
     rejectUnauthorized: false,
     ca: configService.get<string>('SUPABASE_SSL_CERT'),

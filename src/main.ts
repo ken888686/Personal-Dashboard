@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -9,6 +10,7 @@ async function bootstrap() {
   });
 
   const configService = app.get<ConfigService>(ConfigService);
+  const logger = new Logger(AppModule.name);
 
   const globalPrefix = configService.get<string>('PREFIX') || 'api';
   const port = configService.get<number>('PORT') || 3001;
@@ -17,7 +19,19 @@ async function bootstrap() {
   // CORS
   app.enableCors();
 
+  // Swagger
+  const config = new DocumentBuilder()
+    .setTitle('Dashboard')
+    .setDescription('The dashboard API')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/swagger', app, document, {
+    jsonDocumentUrl: '/swagger/json',
+  });
+
   await app.listen(port);
-  Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
+  logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 bootstrap();

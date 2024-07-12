@@ -11,6 +11,13 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dtos/login.dto';
@@ -18,6 +25,7 @@ import { SignUpDto } from './dtos/sign-up.dto';
 import { TokenDto } from './dtos/token.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   private readonly logger: Logger;
@@ -28,6 +36,8 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Post('login')
+  @ApiBody({ type: LoginDto })
+  @ApiOkResponse({ type: TokenDto })
   async login(@Body() loginDto: LoginDto): Promise<TokenDto> {
     this.logger.log('email and password login');
     return await this.authService.loginWithPassword(loginDto.email, loginDto.password);
@@ -35,6 +45,8 @@ export class AuthController {
 
   @HttpCode(HttpStatus.CREATED)
   @Post('signup')
+  @ApiBody({ type: SignUpDto })
+  @ApiCreatedResponse({ type: TokenDto })
   async signUp(@Body() signUpDto: SignUpDto): Promise<TokenDto> {
     this.logger.log('email and password signup');
     return await this.authService.signUpWithPassword(signUpDto);
@@ -64,6 +76,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('profile')
+  @ApiBearerAuth()
   async profile(@Req() request: Request): Promise<any> {
     const token = request.headers.authorization.split(' ')[1];
     return {
