@@ -1,4 +1,9 @@
-export interface TokenDto {
+import { ApiProperty } from '@nestjs/swagger';
+
+export class TokenDto {
+  @ApiProperty({ type: String })
   access_token: string;
+
+  @ApiProperty({ type: String })
   refresh_token: string;
 }
