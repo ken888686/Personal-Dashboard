@@ -12,9 +12,7 @@ async function bootstrap() {
   const configService = app.get<ConfigService>(ConfigService);
   const logger = new Logger(AppModule.name);
 
-  const globalPrefix = configService.get<string>('PREFIX') || 'api';
   const port = configService.get<number>('PORT') || 3001;
-  app.setGlobalPrefix(globalPrefix);
 
   // CORS
   app.enableCors();
@@ -27,7 +25,7 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/swagger', app, document, {
+  SwaggerModule.setup('swagger', app, document, {
     jsonDocumentUrl: '/swagger/json',
     customJs: [
       'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js',
@@ -40,6 +38,6 @@ async function bootstrap() {
   });
 
   await app.listen(port);
-  logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
+  logger.log(`🚀 Application is running on: http://localhost:${port}`);
 }
 bootstrap();
