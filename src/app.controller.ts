@@ -10,6 +10,6 @@ export class AppController {
 
   @Get('')
   redirectToSwagger(@Res() response: Response) {
-    return response.redirect('/api/swagger');
+    return response.redirect('/swagger');
   }
 }
