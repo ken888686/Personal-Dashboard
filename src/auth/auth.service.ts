@@ -69,7 +69,7 @@ export class AuthService {
 
   async loginWithPassword(email: string, password: string): Promise<TokenDto> {
     try {
-      this.logger.log('check email exists:', email);
+      this.logger.log(`check email exists: ${email}`);
       const exists = await this.userService.existsByEmail(email);
       if (!exists) {
         const msg = `${email} doesn't exist`;
@@ -88,15 +88,19 @@ export class AuthService {
       this.logger.log('get user id token');
       const result = await user.getIdTokenResult();
 
+      this.logger.log('get user information from db');
+      const userInfo = await this.userService.findOneByEmail(user.email);
+
       this.logger.log('generate jwt payload');
       const payload = {
+        id: userInfo.id,
         loginType: AuthProvider.PASSWORD,
         email: user.email,
         emailVerified: user.emailVerified,
-        displayName: user.displayName,
-        photoUrl: user.photoURL,
-        firstName: user.metadata.creationTime,
-        lastName: user.metadata.lastSignInTime,
+        displayName: userInfo.displayName,
+        photoUrl: userInfo.photoUrl,
+        firstName: userInfo.firstName,
+        lastName: userInfo.lastName,
         providerId: result.signInProvider,
       };
 
