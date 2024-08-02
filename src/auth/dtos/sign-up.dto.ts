@@ -2,8 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Base } from './base.dto';
 
 export class SignUpDto extends Base {
-  @ApiProperty({ type: String })
-  displayName: string;
+  @ApiProperty({ type: String, required: false })
+  displayName?: string;
 
   @ApiProperty({ type: String, required: false })
   photoUrl?: string;

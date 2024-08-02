@@ -13,6 +13,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { OAuth2Client } from 'google-auth-library';
+import * as nodemailer from 'nodemailer';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { User } from 'src/user/entity/user.entity';
 import { UserService } from 'src/user/user.service';
@@ -26,6 +27,7 @@ export class AuthService {
   private readonly firebaseApp: FirebaseApp;
   private readonly firebaseAdmin: admin.app.App;
   private readonly oauth2Client: OAuth2Client;
+  private readonly transporter: nodemailer.Transporter;
   private readonly logger: Logger;
 
   constructor(
@@ -65,11 +67,21 @@ export class AuthService {
       this.configService.get<string>('CLIENT_SECRET'),
       this.configService.get<string>('CALLBACK_URL'),
     );
+
+    this.transporter = nodemailer.createTransport({
+      host: this.configService.get<string>('SMTP_HOST'),
+      port: this.configService.get<number>('SMTP_PORT'),
+      secure: false,
+      auth: {
+        user: this.configService.get<string>('SMTP_USERNAME'),
+        pass: this.configService.get<string>('SMTP_PASSWORD'),
+      },
+    });
   }
 
   async loginWithPassword(email: string, password: string): Promise<TokenDto> {
     try {
-      this.logger.log('check email exists:', email);
+      this.logger.log(`check email exists: ${email}`);
       const exists = await this.userService.existsByEmail(email);
       if (!exists) {
         const msg = `${email} doesn't exist`;
@@ -88,15 +100,24 @@ export class AuthService {
       this.logger.log('get user id token');
       const result = await user.getIdTokenResult();
 
+      this.logger.log('get user information from db');
+      const userInfo = await this.userService.findOneByEmail(user.email);
+
+      if (userInfo.emailVerified !== user.emailVerified) {
+        this.logger.log('update user email verified');
+        await this.userService.updateEmailVerified(userInfo.email, user.emailVerified);
+      }
+
       this.logger.log('generate jwt payload');
       const payload = {
+        id: userInfo.id,
         loginType: AuthProvider.PASSWORD,
         email: user.email,
         emailVerified: user.emailVerified,
-        displayName: user.displayName,
-        photoUrl: user.photoURL,
-        firstName: user.metadata.creationTime,
-        lastName: user.metadata.lastSignInTime,
+        displayName: userInfo.displayName,
+        photoUrl: userInfo.photoUrl,
+        firstName: userInfo.firstName,
+        lastName: userInfo.lastName,
         providerId: result.signInProvider,
       };
 
@@ -158,8 +179,26 @@ export class AuthService {
         photoURL: signUpDto.photoUrl,
       });
 
+      this.logger.log('get user information from db');
+      const userInfo = await this.userService.findOneByEmail(user.email);
+
+      this.logger.log('generate jwt payload');
+      const payload = {
+        id: userInfo.id,
+        loginType: AuthProvider.PASSWORD,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        displayName: userInfo.displayName,
+        photoUrl: userInfo.photoUrl,
+        firstName: userInfo.firstName,
+        lastName: userInfo.lastName,
+      };
+
+      this.logger.log('sign access token');
+      const accessToken = await this.jwtService.signAsync(payload);
+
       return {
-        access_token: await user.getIdToken(true),
+        access_token: accessToken,
         refresh_token: user.refreshToken,
       };
     } catch (error) {
@@ -183,6 +222,38 @@ export class AuthService {
     const hasMinLength = password.length >= 8;
 
     return hasLowerCase && hasUpperCase && hasDigit && hasSpecialChar && hasMinLength;
+  }
+
+  async verifyEmail(email: string) {
+    try {
+      this.logger.log(`generating email verification link for ${email}`);
+      const link = await this.firebaseAdmin.auth().generateEmailVerificationLink(email, {
+        url: this.configService.get<string>('EMAIL_VERIFICATION_CALLBACK_URL'),
+        handleCodeInApp: true,
+      });
+      await this.sendEmail(
+        email,
+        'Verify Your Email',
+        `Please verify your email by clicking this link: ${link}`,
+      );
+      return {
+        message: 'Email verification link has been sent to your email',
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  async sendEmail(to: string, subject: string, body: string) {
+    this.logger.log(`sending email to ${to}`);
+    const info = await this.transporter.sendMail({
+      from: this.configService.get<string>('CLIENT_EMAIL'),
+      to,
+      subject,
+      text: body,
+      html: `<p>${body}</p>`,
+    });
   }
 
   async getGoogleAuthURL() {
