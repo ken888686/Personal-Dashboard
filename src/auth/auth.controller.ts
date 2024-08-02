@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
   Post,
+  Put,
   Req,
   Res,
   UnauthorizedException,
@@ -50,6 +51,25 @@ export class AuthController {
   async signUp(@Body() signUpDto: SignUpDto): Promise<TokenDto> {
     this.logger.log('email and password signup');
     return await this.authService.signUpWithPassword(signUpDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('email/send-verification')
+  @ApiBearerAuth()
+  async sendVerification(@Req() request: Request): Promise<{
+    message: string;
+  }> {
+    this.logger.log('handle email verify');
+    const token = request.headers.authorization.split(' ')[1];
+    const payload = await this.authService.verifyToken(token);
+    return await this.authService.verifyEmail(payload['email']);
+  }
+
+  @Get('email/verify/callback')
+  @ApiBearerAuth()
+  verifyEmailCallback(): string {
+    this.logger.log('handle email verify');
+    return 'Please re-login your account again. You can close this window now.';
   }
 
   @Get('google')

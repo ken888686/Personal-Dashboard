@@ -27,4 +27,9 @@ export class UserService {
     await this.usersRepository.upsert(newUser, ['email']);
     return await this.usersRepository.findOneBy({ email: newUser.email });
   }
+
+  async updateEmailVerified(email: string, emailVerified: boolean) {
+    this.logger.log(`update email verified: ${email}, ${emailVerified}`);
+    return await this.usersRepository.update({ email }, { emailVerified: emailVerified });
+  }
 }
